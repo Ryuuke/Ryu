@@ -91,6 +91,20 @@ namespace Ryu
             AddIdentInfoToSymTable(identInfo);
         }
 
+        public override void Visit(DeclareAST declareAST)
+        {
+            var identInfo = new IdentifierInfo
+            {
+                name = declareAST.VariableDec.Name,
+                typeAST = declareAST.VariableDec.Type,
+                position = _currentNodePosition,
+                scopeId = _currentScope.id,
+                isFunctionType = declareAST.VariableDec.Type is FunctionTypeAST
+            };
+
+            AddIdentInfoToSymTable(identInfo);
+        }
+
         public override void Visit(VariableDecAssignAST variableDecAssign)
         {
             var identInfo = new IdentifierInfo
@@ -187,7 +201,7 @@ namespace Ryu
         {
             var typeInfo = new CustomTypeInfo
             {
-                typeString = structAST.Name,
+                type = structAST,
                 kind = TypeKind.STRUCT,
                 position = _currentNodePosition,
                 scopeId = _currentScope.id,
@@ -208,20 +222,18 @@ namespace Ryu
         {
             var typeInfo = new CustomTypeInfo
             {
-                typeString = enumAST.Name,
+                type = enumAST,
                 kind = TypeKind.ENUM,
                 scopeId = _currentScope.id,
-                position = _currentNodePosition
+                position = _currentNodePosition,
+                memberNameType = new Dictionary<string, TypeAST>()
             };
 
             foreach (var member in enumAST.Values)
             {
-                var variableDec = member as VariableNameAST;
+                var variableDec = member as VariableDecAST;
 
-                typeInfo.memberNameType.Add(variableDec.Name, new TypeAST
-                {
-                    TypeName = Enum.GetName(typeof(Keyword), Keyword.S32).ToLower()
-                });
+                typeInfo.memberNameType.Add(variableDec.Name, variableDec.Type);
             }
 
             AddType(typeInfo);
@@ -229,14 +241,14 @@ namespace Ryu
 
         private void AddType(CustomTypeInfo typeInfo)
         {
-            /* ATM all types are declared in the same scope so they must have different names */
-            if (_symTable.TypeInfoDictionary.ContainsKey(typeInfo.typeString))
+            /* ATM all types are declared in the global scope so they must have different names */
+            if (_symTable.TypeInfoDictionary.ContainsKey(typeInfo.type.ToString()))
             {
                 throw new Exception(string.Format("Identifier already declared {0} in file {1} line {2}",
-                    typeInfo.typeString, _symTable.FilePath, _currentNodePosition));
+                    typeInfo.type.ToString(), _symTable.FilePath, _currentNodePosition));
             }
 
-            _symTable.TypeInfoDictionary.Add(typeInfo.typeString, typeInfo);
+            _symTable.TypeInfoDictionary.Add(typeInfo.type.ToString(), typeInfo);
         }
 
         public override void Visit(ConstantVariable constantVariable)
@@ -255,7 +267,7 @@ namespace Ryu
             IdentifiersToBeInferred.Add(new IdentExpr
             {
                 identInfo = identInfo,
-                expr = constantVariable.ExpressionValue as BaseExprAST,
+                expr = constantVariable.ExpressionValue,
                 file = _symTable.FilePath
             });
         }

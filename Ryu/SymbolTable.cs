@@ -53,7 +53,7 @@ namespace Ryu
 
     public class CustomTypeInfo
     {
-        public string typeString;
+        public TypeAST type;
         public TypeKind kind;
         public int scopeId;
         public int position;
@@ -122,24 +122,20 @@ namespace Ryu
 
             Debug.Assert(functionType != null);
 
-            if (argsType != null && functionType.ArgumentTypes.Count != argsType.Count)
+            if (argsType != null && ((!functionType.IsVarArgsFn && functionType.ArgumentTypes.Count != argsType.Count) ||
+                (functionType.IsVarArgsFn && functionType.ArgumentTypes.Count > argsType.Count)))
                 return true;
 
             if (argsType == null && functionType.ArgumentTypes.Count != 0)
                 return true;
 
-            bool invalidArgsFlag = false;
-
             for (var i = 0; i < functionType.ArgumentTypes.Count; i++)
             {
                 if (functionType.ArgumentTypes[i].ToString() != argsType[i].ToString())
-                {
-                    invalidArgsFlag = true;
-                    break;
-                }
+                    return true;
             }
 
-            return invalidArgsFlag;
+            return false;
         }
 
         public CustomTypeInfo LookupTypeInfo(string typeString)

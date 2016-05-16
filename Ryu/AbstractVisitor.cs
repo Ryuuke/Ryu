@@ -20,8 +20,10 @@ namespace Ryu
         public virtual void Visit(VariableDecAssignAST variableDecAssign) { }
         public virtual void Visit(VariableAssignAST variableAssign) { }
         public virtual void Visit(ArrayAccessAST arrayAcess) { }
+        public virtual void Visit(DeclareAST declareAST) { }
         public virtual void Visit(ConstantVariable constantVariable) { }
         public virtual void Visit(ArrayAcessAssignAST arrayAcessAssign) { }
+        public virtual void Visit(CastAST castAST) { }
         public virtual void Visit(ConstantKeywordAST constantKeyword) { }
         public virtual void Visit(ExprAST expr) { }
         public virtual void Visit(FunctionProtoAST functionProto) { }
@@ -43,10 +45,13 @@ namespace Ryu
         public virtual void Visit(DeleteAST deleteStatement) { }
         public virtual void Visit(DeferAST deferStatement) { }
         public virtual void Visit(TypeAST type) { }
+        public virtual void Visit(PtrTypeAST type) { }
         public virtual void Visit(FunctionTypeAST functionType) { }
         public virtual void Visit(StaticArrayTypeAST staticArrayType) { }
         public virtual void Visit(DynamicArrayTypeAST dynamicArrayType) { }
         public virtual void Visit(ArrayTypeAST arrayAST) { }
         public virtual void Visit(UnaryOperator unaryOperator) { }
+        public virtual void Visit(PtrDerefAST ptrDerefAST) { }
+        public virtual void Visit(AddressOfAST addressOf) { }
     }
 }

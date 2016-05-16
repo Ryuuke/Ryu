@@ -12,14 +12,18 @@ namespace Ryu
         public struct StateInfo
         {
             public string currentFile;
-            public IdentifierInfo identInfo;
+            public int scopeId;
+            public int position;
             public TypeAST currentType;
             public CustomTypeInfo structOrEnum;
+            public bool isConst;
+            public bool lookForEnum;
         }
 
         SymbolTableManager _symTableManager;
         StateInfo _stateInfo;
         Func<IdentifierInfo, TypeAST> _getVariableTypeFunc;
+
 
         public ExprTypeVisitor(SymbolTableManager symTableManager, Func<IdentifierInfo, TypeAST> getVariableTypeFunc = null)
         {
@@ -27,18 +31,11 @@ namespace Ryu
             _getVariableTypeFunc = getVariableTypeFunc;
         }
 
-        public TypeAST GetExprType(string file, IdentifierInfo identInfo, BaseExprAST expression)
+        public TypeAST GetAstNodeType(string file, int scopeId, int position,
+            ASTNode ast, bool isConstExpr = false)
         {
-            _stateInfo = new StateInfo { currentFile = file, identInfo = identInfo, currentType = null };
-
-            expression.Accept(this);
-
-            return _stateInfo.currentType;
-        }
-
-        public TypeAST GetASTType(string file, IdentifierInfo identInfo, ASTNode ast)
-        {
-            _stateInfo = new StateInfo { currentFile = file, identInfo = identInfo, currentType = null };
+            _stateInfo = new StateInfo { currentFile = file, scopeId = scopeId, position = position,
+                currentType = null, isConst = isConstExpr };
 
             ast.Accept(this);
 
@@ -100,13 +97,22 @@ namespace Ryu
 
         public override void Visit(FunctionCallAST functionCall)
         {
+            if (_stateInfo.isConst)
+                throw new Exception("Expression must be constant");
+
             _stateInfo.currentType = GetReturnType(functionCall);
         }
 
         public override void Visit(StructMemberCallAST structCall)
         {
+            if (_stateInfo.isConst)
+                throw new Exception("Expression must be constant");
+
             for (var i = 0; i < structCall.variableNames.Count; i++)
             {
+                if (i == 0)
+                    _stateInfo.lookForEnum = true;
+
                 var ast = structCall.variableNames[i];
 
                 ast.Accept(this);
@@ -116,8 +122,10 @@ namespace Ryu
                     var structTypeInfo = _symTableManager.
                             LookupTypeInfo(_stateInfo.currentFile, _stateInfo.currentType.ToString());
 
-                    if (structTypeInfo == null)
-                        throw new Exception("Invalid struct type " + _stateInfo.currentType.ToString());
+                    if (structTypeInfo == null ||
+                        (structTypeInfo.kind == TypeKind.ENUM && 
+                        structCall.variableNames[i].ToString() != structTypeInfo.type.ToString()))
+                        throw new Exception("Invalid struct variable " + structCall.variableNames[i]);
 
                     _stateInfo.structOrEnum = structTypeInfo;
                 }
@@ -145,7 +153,13 @@ namespace Ryu
 
         public override void Visit(NewExprAST newStatement)
         {
+            if (_stateInfo.isConst)
+                throw new Exception("Expression must be constant");
+
             TypeAST type = newStatement.Type;
+
+            if (type is FunctionTypeAST)
+                throw new Exception("Cannot allocate a function type");
 
             ArrayTypeAST arrayType;
 
@@ -154,15 +168,25 @@ namespace Ryu
                 type = arrayType.TypeOfContainedValues;
             }
 
-            if (!(type is FunctionTypeAST))
+            if (type.ToString().StartsWith("^"))
+                throw new Exception("Cannot allocate a pointer");
+
+            if (type.ToString() == Enum.GetName(typeof(Keyword), Keyword.VOID).ToLower())
+                throw new Exception("Cannot allocate void");
+
+            if (!(type is FunctionTypeAST) && !Vocabulary.Types.Contains(type.ToString()))
             {
                 var typeExists = _symTableManager.LookupTypeInfo(_stateInfo.currentFile, type.ToString());
 
-                if (typeExists == null)
-                    throw new Exception(string.Format("New statement : struct type : {0}", type.ToString()));
+                if (typeExists == null || typeExists.kind == TypeKind.ENUM)
+                    throw new Exception(string.Format("New statement : type : {0} is not a struct", type.ToString()));
             }
 
-            _stateInfo.currentType = newStatement.Type;
+            _stateInfo.currentType = new PtrTypeAST
+            {
+                Type = newStatement.Type,
+                TypeName = "Pointer"
+            };
         }
 
         public override void Visit(ExprAST expr)
@@ -172,6 +196,9 @@ namespace Ryu
 
         public override void Visit(ArrayAccessAST arrayAccess)
         {
+            if (_stateInfo.isConst)
+                throw new Exception("Expression must be constant");
+
             var arrayType = GetArrayType(arrayAccess);
 
             var accessDimensions = arrayAccess.AccessExprList.Count;
@@ -183,11 +210,18 @@ namespace Ryu
         {
             if (_stateInfo.structOrEnum != null)
             {
-                _stateInfo.currentType = _stateInfo.structOrEnum.memberNameType[variableName.Name];
+                if (_stateInfo.isConst)
+                    throw new Exception("Expression must be constant");
+
+                if (_stateInfo.structOrEnum.kind == TypeKind.ENUM)
+                    _stateInfo.currentType = _stateInfo.structOrEnum.type;
+                else
+                    _stateInfo.currentType = _stateInfo.structOrEnum.memberNameType[variableName.Name];
+
                 return;
             }
 
-            _stateInfo.currentType = GetVariableType(variableName);
+            _stateInfo.currentType = GetVariableType(variableName, _stateInfo.isConst);
         }
 
         public override void Visit(StringAST stringConstant)
@@ -205,11 +239,86 @@ namespace Ryu
             };
         }
 
+        public override void Visit(CastAST castAST)
+        {
+            var castType = castAST.Type;
+
+            if (Vocabulary.Types.All(x => x != castAST.Type.ToString()))
+            {
+                var customType = _symTableManager.LookupTypeInfo(_stateInfo.currentFile, castType.ToString());
+
+                if (customType == null || customType.kind != TypeKind.ENUM)
+                    throw new Exception(string.Format("Invalid cast: Type '{0}' is not a primitive type or enum type", castType));
+
+                castType = customType.type;
+            }
+
+            castAST.Expression.Accept(this);
+
+            var expressionType = _stateInfo.currentType;
+
+            if (Vocabulary.Types.All(x => x != expressionType.ToString()) && !(expressionType is EnumAST))
+                throw new Exception(string.Format("Invalid cast: Type '{0}' is not a primitive type or enum type", expressionType));
+
+            _stateInfo.currentType = CastType(expressionType, castType);
+        }
+
+        public override void Visit(PtrDerefAST ptrDerefAST)
+        {
+            ptrDerefAST.Expression.Accept(this);
+
+            var PointerType = _stateInfo.currentType as PtrTypeAST;
+
+            if (PointerType == null)
+                throw new Exception("Cannot dereference a non-pointer type");
+
+            _stateInfo.currentType = PointerType.Type;
+        }
+
+        public override void Visit(AddressOfAST addressOfAST)
+        {
+            addressOfAST.Variable.Accept(this);
+
+            _stateInfo.currentType = new PtrTypeAST() { Type = _stateInfo.currentType };
+        }
+
+
         private bool IsLogicalOperator(string operatorString)
         {
             var logicalOperators = new string[] { "==", ">=", ">", "<", "<=", "!=" };
 
             return logicalOperators.Any(x => x == operatorString);
+        }
+        
+        private TypeAST CastType(TypeAST currentType, TypeAST otherType)
+        {
+            var currentTypeString = currentType.ToString();
+            var otherTypeString = otherType.ToString();
+
+            if (currentTypeString == otherTypeString)
+                return otherType;
+
+            if ((Vocabulary.Types.All(x => x != currentTypeString) ||
+                Vocabulary.Types.All(x => x != otherTypeString)) && 
+                currentType.TypeName != "Enum" && 
+                otherType.TypeName != "Enum" )
+                throw new Exception("Cannot Cast type " + currentTypeString + " to " + otherTypeString);
+
+            if (currentTypeString == "str" || otherTypeString == "str")
+                throw new Exception("Cannot Cast type " + currentTypeString + " to " + otherTypeString);
+
+            if (currentType.TypeName == "Enum" &&
+                (otherTypeString.StartsWith("u") || otherTypeString.StartsWith("s")))
+                return otherType;
+
+            if (otherType.TypeName == "Enum" &&
+                (currentTypeString.StartsWith("u") || currentTypeString.StartsWith("s")))
+                return otherType;
+
+            if (currentType.TypeName == "Enum" || otherType.TypeName == "Enum")
+                throw new Exception("Cannot Cast type " + currentTypeString + " to " + otherTypeString);
+
+            return otherType;
         }
 
         private string ComputeType(string currentTypeString, string otherTypeString)
@@ -242,14 +351,6 @@ namespace Ryu
             if (currentTypeString.StartsWith("u") && otherTypeString.StartsWith("u"))
                 return "u32";
 
-            if ((currentTypeString == "u64" || currentTypeString.StartsWith("f")) &&
-                (otherTypeString == "u64" || otherTypeString.StartsWith("f")))
-                return "f64";
-
-            if ((currentTypeString == "s64" || currentTypeString.StartsWith("f")) &&
-                (otherTypeString == "s64" || otherTypeString.StartsWith("f")))
-                return "f64";
-
             if (currentTypeString == "f64" || otherTypeString == "f64")
                 return "f64";
 
@@ -260,6 +361,14 @@ namespace Ryu
             if ((currentTypeString.StartsWith("u") || currentTypeString.StartsWith("f")) &&
                 (otherTypeString.StartsWith("u") || otherTypeString.StartsWith("f")))
                 return "f32";
+
+            if ((currentTypeString.StartsWith("u") || currentTypeString.StartsWith("s")) &&
+                otherTypeString == "char")
+                return currentTypeString;
+
+            if ((otherTypeString.StartsWith("u") || otherTypeString.StartsWith("s")) &&
+                currentTypeString == "char")
+                return otherTypeString;
 
             throw new Exception("Cannot apply operation on types " + currentTypeString + " and " + otherTypeString);
         }
@@ -272,23 +381,28 @@ namespace Ryu
             return ComputeType(currentType.ToString(), otherType.ToString());
         }
 
-        private string GetTypeOf(TypeAST currentType, string otherType)
-        {
-            if (currentType == null)
-                return otherType.ToString();
-
-            return ComputeType(currentType.ToString(), otherType);
-        }
-
         private TypeAST GetVariableType(VariableNameAST variableName, bool isConstant = false)
         {
             var variableInfo = _symTableManager.
                                     LookupIdentifierInfo(_stateInfo.currentFile, variableName.Name,
-                                    _stateInfo.identInfo.scopeId, _stateInfo.identInfo.position, isConstant);
+                                    _stateInfo.scopeId, _stateInfo.position, isConstant);
+
+            if (variableInfo == null && !_stateInfo.lookForEnum)
+            {
+                throw new Exception(string.Format("Undeclared {0} variable {1} in file {2}",
+                           isConstant ? "constant" : "", variableName.Name, _stateInfo.currentFile));
+            }
 
             if (variableInfo == null)
-                throw new Exception(string.Format("Undeclared {0} identifier {1} in file {2}",
-                    isConstant ? "constant" : "", variableName.Name, _stateInfo.currentFile));
+            {
+                var isEnum = _symTableManager.LookupTypeInfo(_stateInfo.currentFile, variableName.Name);
+
+                if (isEnum == null || isEnum.kind != TypeKind.ENUM)
+                    throw new Exception(string.Format("Undeclared {0} variable {1} in file {2}",
+                           isConstant ? "constant" : "", variableName.Name, _stateInfo.currentFile));
+
+                return isEnum.type;
+            }
 
             if (variableInfo.typeAST == null)
             {
@@ -300,8 +414,6 @@ namespace Ryu
 
                  _stateInfo = previousStateInfo;
             }
-
-            _stateInfo.identInfo.isFunctionType = variableInfo.isFunctionType;
 
             return variableInfo.typeAST;
         }
@@ -337,7 +449,9 @@ namespace Ryu
                 string invalidArgsMessage = string.Format("Invalid function arguments expected '{0}' got '{1}'",
                         string.Join(",", functionType.ArgumentTypes), argsType == null ? "no argument" : string.Join(",", argsType));
 
-                if (argsType != null && functionType.ArgumentTypes.Count != argsType.Count)
+                if (argsType != null && 
+                    ((!functionType.IsVarArgsFn && functionType.ArgumentTypes.Count != argsType.Count) ||
+                     (functionType.IsVarArgsFn && functionType.ArgumentTypes.Count > argsType.Count)))
                     throw new Exception(invalidArgsMessage);
 
                 if (argsType == null && functionType.ArgumentTypes.Count != 0)
@@ -355,16 +469,15 @@ namespace Ryu
             {
                 var functionCallInfo = _symTableManager.
                         LookupFunctionInfo(_stateInfo.currentFile, functionCallAst.Name.ToString(),
-                        _stateInfo.identInfo.scopeId, argsType);
+                        _stateInfo.scopeId, argsType);
 
                 if (functionCallInfo == null)
-                    throw new Exception("Undefined function " + functionCallAst.Name);
+                    throw new Exception(string.Format("Undefined function {0}({1})",
+                        functionCallAst.Name, 
+                        argsType != null ? string.Join(",", argsType) : ""));
 
                 functionType = functionCallInfo.typeAST as FunctionTypeAST;
             }
-
-            if (functionType.ReturnType.TypeName == Enum.GetName(typeof(Keyword), Keyword.VOID).ToLower())
-                throw new Exception(string.Format("Function {0} returns void, variable cannot be of type void", functionCallAst.Name.ToString()));
 
             return functionType.ReturnType;
         }

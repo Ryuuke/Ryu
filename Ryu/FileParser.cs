@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.IO;
+using System.Diagnostics;
 
 namespace Ryu
 {
@@ -11,6 +12,7 @@ namespace Ryu
         IMPORT,
         LOAD,
         RUN,
+        CAST,
     }
 
     public enum ScopeKind
@@ -43,6 +45,7 @@ namespace Ryu
         {
             _tokenInfoQueue = tokenInfoQueue;
             _filePath = filePath;
+
             _rootAST = new RootScopeAST();
             _rootAST.elements = new List<ASTNode>();
             _rootAST.FileDependencies = new List<string>();
@@ -90,6 +93,10 @@ namespace Ryu
                         _rootAST.elements.Add(tmpResult);
                     }
                 }
+                else if (IsKeyword(Keyword.DECLARE))
+                {
+                    _rootAST.elements.Add(ParseDeclare());
+                }
                 else
                 {
                     throw new Exception(
@@ -102,8 +109,7 @@ namespace Ryu
 
         private ScopeAST ParseScope()
         {
-            if (!IsSymbol(Symbol.L_CURL_BRACKET))
-                return null;
+            Debug.Assert(IsSymbol(Symbol.L_CURL_BRACKET));
 
             ReadNext();
 
@@ -150,7 +156,7 @@ namespace Ryu
 
         private void ParseCompilerDirective()
         {
-            ExpectSymbol(Symbol.NUMBERSIGN);
+            Debug.Assert(IsSymbol(Symbol.NUMBERSIGN));
 
             ReadNext();
 
@@ -176,6 +182,26 @@ namespace Ryu
             }
         }
 
+        public DeclareAST ParseDeclare()
+        {
+            Debug.Assert(IsKeyword(Keyword.DECLARE));
+
+            ReadNext();
+
+            ExpectType(TokenType.IDENTIFIER);
+
+            ReadNext();
+
+            ExpectSymbol(Symbol.COLON);
+
+            var variableDec = ParseVariableDecOrAssign() as VariableDecAST;
+
+            if (variableDec == null)
+                throw new Exception("Invalid variable or function declaration " + _currentTokenInfo);
+
+            return new DeclareAST { VariableDec = variableDec };
+        }
+
         /**
          * All things that begins with an identifier, it can be :
          * Variable name : x
@@ -195,6 +221,9 @@ namespace Ryu
             // Function Call
             if (IsSymbol(Symbol.L_PARAN))
             {
+                if (_scopeKind == ScopeKind.GLOBAL)
+                    throw new Exception("Expression must be assignment or declaration " + _currentTokenInfo);
+
                 var functionCallOrArrayCall = ParseFunctionCall();
 
                 /* fn()[expr] = */
@@ -231,7 +260,7 @@ namespace Ryu
             {
                 if (IsType(PeekNext()))
                 {
-                    return ParseVariableDec();
+                    return ParseVariableDecOrAssign();
                 }
 
                 ReadNext();
@@ -260,10 +289,14 @@ namespace Ryu
                     }
                     else
                     {
+                        /* ... well */
                         if (PeekNext().token[0] == (int) Symbol.L_PARAN && 
                             (Peek(1).token[0] == (int)Symbol.R_PARAN || 
                             (Peek(1).type == TokenType.IDENTIFIER &&
-                             Peek(2).token[0] == (int) Symbol.COLON)))
+                             Peek(2).token[0] == (int) Symbol.COLON)) ||
+                             (Peek(1).token[0] == (int)(Symbol.POINT) &&
+                                Peek(2).token[0] == (int)(Symbol.POINT) &&
+                                Peek(3).token[0] == (int)(Symbol.POINT)))
                         {
                             ReadNext();
 
@@ -343,7 +376,7 @@ namespace Ryu
 
         private ASTNode ParseArrayAssignment(ArrayAccessAST arrayCall)
         {
-            ExpectSymbol(Symbol.EQUAL);
+            Debug.Assert(IsSymbol(Symbol.EQUAL));
 
             var arrayAssignAST = new ArrayAcessAssignAST();
             arrayAssignAST.ArrayAcess = arrayCall;
@@ -357,9 +390,9 @@ namespace Ryu
             return arrayAssignAST;
         }
         
-        private ASTNode ParseVariableDec()
+        private ASTNode ParseVariableDecOrAssign()
         {
-            ExpectSymbol(Symbol.COLON);
+            Debug.Assert(IsSymbol(Symbol.COLON));
 
             var variableName = _currentIdentifier;
 
@@ -377,7 +410,8 @@ namespace Ryu
                     Type = typeAST
                 };
             }
-            else if (IsSymbol(Symbol.EQUAL))
+
+            if (IsSymbol(Symbol.EQUAL))
             {
                 return ParseVariableDecAssign(variableName, typeAST);
             }
@@ -387,7 +421,7 @@ namespace Ryu
 
         private ASTNode ParseVariableDecAssign(string variableName, TypeAST typeAST)
         {
-            ExpectSymbol(Symbol.EQUAL);
+            Debug.Assert(IsSymbol(Symbol.EQUAL));
             ReadNext();
 
             BaseExprAST assignExpr;
@@ -443,14 +477,12 @@ namespace Ryu
 
                     typeAST = new DynamicArrayTypeAST() { TypeOfContainedValues = ParseType(isFunctionType) };
                     typeAST.TypeName = "Dynamic Array";
-                    return typeAST;
                 }
                 else if (IsSymbol(Symbol.R_BRACKET))
                 {
                     ReadNext();
                     typeAST = new ArrayTypeAST { TypeOfContainedValues = ParseType(isFunctionType) };
                     typeAST.TypeName = "Array Type";
-                    return typeAST;
                 }
                 else if (!isFunctionType)
                 {
@@ -466,7 +498,6 @@ namespace Ryu
 
                         typeAST = new StaticArrayTypeAST { Size = arraySize, TypeOfContainedValues = ParseType() };
                         typeAST.TypeName = "Static Array";
-                        return typeAST;
                     }
                     else
                     {
@@ -483,7 +514,7 @@ namespace Ryu
                 var functionTypeAST = new FunctionTypeAST();
                 functionTypeAST.TypeName = "Function";
                 functionTypeAST.ArgumentTypes = new List<TypeAST>();
-                functionTypeAST.kind = FunctionTypeKind.FUNCTION_PTR;
+                functionTypeAST.Kind = FunctionTypeKind.FUNCTION_PTR;
 
                 while (true)
                 {
@@ -491,6 +522,19 @@ namespace Ryu
 
                     if (IsSymbol(Symbol.R_PARAN))
                         break;
+
+                    if (IsVarArgsSymbol())
+                    {
+                        ReadNext();
+                        ReadNext();
+                        ReadNext();
+
+                        functionTypeAST.IsVarArgsFn = true;
+
+                        ExpectSymbol(Symbol.R_PARAN);
+
+                        break;
+                    }
 
                     ExpectVariableType();
 
@@ -513,21 +557,33 @@ namespace Ryu
 
                 functionTypeAST.ReturnType = ParseType(true);
 
-                return functionTypeAST;
+                typeAST = functionTypeAST;
+            }
+            else if (IsSymbol(Symbol.CARET))
+            {
+                ReadNext();
+
+                typeAST = new PtrTypeAST { Type = ParseType(isFunctionType), TypeName = "Ptr" };
             }
             else
             {
                 typeAST = new TypeAST();
+                typeAST.TypeName = _currentTokenInfo.token;
             }
-
-            typeAST.TypeName = _currentTokenInfo.token;
 
             return typeAST;
         }
 
+        private bool IsVarArgsSymbol()
+        {
+            return (IsSymbol(Symbol.POINT) &&
+                PeekNext().token[0] == (int)Symbol.POINT &&
+                Peek(1).token[0] == (int)Symbol.POINT);
+       }
+
         private ASTNode ParseVariableAssignment(string op = null)
         {
-            ExpectSymbol(Symbol.EQUAL);
+            Debug.Assert(IsSymbol(Symbol.EQUAL));
 
             var variableName = _currentIdentifier;
 
@@ -539,7 +595,6 @@ namespace Ryu
 
             ExpectSymbol(Symbol.SEMICOLON);
 
-
             return new VariableAssignAST
             {
                 VariableName = variableName,
@@ -550,15 +605,17 @@ namespace Ryu
 
         /* 
          * fn : (varname : TYPE) -> RETTYPE;
-         * fn :=  (varname : TYPE) -> RETTYPE { scope }
+         * fn ::  (varname : TYPE) -> RETTYPE { scope }
          */
         private ASTNode ParseFunctionProto()
         {
-            ExpectSymbol(Symbol.L_PARAN);
+            Debug.Assert(IsSymbol(Symbol.L_PARAN));
 
             var functionName = _currentIdentifier;
 
             List<VariableDecAST> args = null;
+
+            var functionProtoAST = new FunctionProtoAST();
 
             while (true)
             {
@@ -566,6 +623,19 @@ namespace Ryu
 
                 if (IsSymbol(Symbol.R_PARAN))
                     break;
+
+                if (IsVarArgsSymbol())
+                {
+                    ReadNext();
+                    ReadNext();
+                    ReadNext();
+
+                    functionProtoAST.IsVarArgsFn = true;
+
+                    ExpectSymbol(Symbol.R_PARAN);
+
+                    break;
+                }
 
                 ExpectType(TokenType.IDENTIFIER);
 
@@ -599,7 +669,6 @@ namespace Ryu
 
             ReadNext();
 
-            var functionProtoAST = new FunctionProtoAST();
 
             if (IsSymbol(Symbol.L_CURL_BRACKET))
             {
@@ -654,8 +723,7 @@ namespace Ryu
 
         private ASTNode ParseEnum()
         {
-            if (!IsKeyword(Keyword.ENUM))
-                return null;
+            Debug.Assert(IsKeyword(Keyword.ENUM));
 
             var enumName = _currentIdentifier;
 
@@ -666,6 +734,7 @@ namespace Ryu
             var enumAST = new EnumAST
             {
                 Name = enumName,
+                TypeName = "Enum",
             };
 
             var enumVariables = new List<ASTNode>();
@@ -687,35 +756,29 @@ namespace Ryu
 
                     ReadNext();
 
-                    BaseExprAST value;
-
-                    if (IsTokenType(TokenType.IDENTIFIER))
+                    enumVariables.Add(new VariableDecAssignAST
                     {
-                        value = new ExprAST { expr = new VariableNameAST { Name = _currentIdentifier } };
-                    }
-                    else if (IsTokenType(TokenType.INT_CONST))
-                    {
-                        value = new ExprAST { expr = new NumberAST { Value = int.Parse(_currentTokenInfo.token) } };
-                    }
-                    else
-                    {
-                        throw new Exception(
-                            string.Format("Invalid enum value {0} : expected constant name or integer",
-                            _currentTokenInfo));
-                    }
-
-                    enumVariables.Add(new VariableAssignAST
-                    {
-                        VariableName = variableName,
-                        ExpressionValue = value
+                        Name = variableName,
+                        ExpressionValue = ParseExpr(),
+                        Type = new TypeAST
+                        {
+                            TypeName = Enum.GetName(typeof(Keyword), Keyword.S32).ToLower()
+                        },
                     });
                 }
                 else
                 {
-                    enumVariables.Add(new VariableNameAST { Name = _currentIdentifier });
-                }
+                    enumVariables.Add(new VariableDecAST
+                    {
+                        Name = _currentIdentifier,
+                        Type = new TypeAST
+                        {
+                            TypeName = Enum.GetName(typeof(Keyword), Keyword.S32).ToLower()
+                        }
+                    });
 
-                ReadNext();
+                    ReadNext();
+                }
 
                 if (!IsSymbol(Symbol.COMMA))
                 {
@@ -731,8 +794,7 @@ namespace Ryu
 
         private ASTNode ParseStruct()
         {
-            if (!IsKeyword(Keyword.STRUCT))
-                return null;
+            Debug.Assert(IsKeyword(Keyword.STRUCT));
 
             var structName = _currentIdentifier;
 
@@ -743,6 +805,7 @@ namespace Ryu
             var structAST = new StructAST
             {
                 Name = structName,
+                TypeName = "Struct"
             };
 
             var structVariables = new List<ASTNode>();
@@ -760,7 +823,7 @@ namespace Ryu
 
                 ExpectSymbol(Symbol.COLON);
 
-                structVariables.Add(ParseVariableDec());
+                structVariables.Add(ParseVariableDecOrAssign());
             }
 
             structAST.Variables = structVariables;
@@ -771,7 +834,7 @@ namespace Ryu
         /* x[expr].y.z[expr] = */
         private StructMemberCallAST ParseStructMember(ASTNode headExpr = null)
         {
-            ExpectSymbol(Symbol.POINT);
+            Debug.Assert(IsSymbol(Symbol.POINT));
 
             var structMember = new StructMemberCallAST();
 
@@ -811,7 +874,7 @@ namespace Ryu
 
         private ASTNode ParseStructMemberAssign(StructMemberCallAST structMember)
         {
-            ExpectSymbol(Symbol.EQUAL);
+            Debug.Assert(IsSymbol(Symbol.EQUAL));
 
             ReadNext();
 
@@ -828,7 +891,7 @@ namespace Ryu
 
         private ASTNode ParseStatement()
         {
-            ExpectType(TokenType.KEYWORD);
+            Debug.Assert(IsTokenType(TokenType.KEYWORD));
 
             if (IsKeyword(Keyword.IF))
             {
@@ -894,8 +957,7 @@ namespace Ryu
 
         private ASTNode ParseIf()
         {
-            if (!IsKeyword(Keyword.IF))
-                return null;
+            Debug.Assert(IsKeyword(Keyword.IF));
 
             ReadNext();
 
@@ -953,8 +1015,7 @@ namespace Ryu
 
         private ASTNode ParseFor()
         {
-            if (!IsKeyword(Keyword.FOR))
-                return null;
+            Debug.Assert(IsKeyword(Keyword.FOR));
 
             ReadNext();
 
@@ -1011,8 +1072,7 @@ namespace Ryu
 
         private ASTNode ParseWhile()
         {
-            if (!IsKeyword(Keyword.WHILE))
-                return null;
+            Debug.Assert(IsKeyword(Keyword.WHILE));
 
             ReadNext();
 
@@ -1034,8 +1094,7 @@ namespace Ryu
 
         private ASTNode ParseDoWhile()
         {
-            if (!IsKeyword(Keyword.DO))
-                return null;
+            Debug.Assert(IsKeyword(Keyword.DO));
 
             ReadNext();
 
@@ -1071,11 +1130,7 @@ namespace Ryu
 
         private ASTNode ParseReturn()
         {
-            if (!IsKeyword(Keyword.RETURN))
-                return null;
-
-            if (_scopeKind == ScopeKind.GLOBAL)
-                throw new Exception("Cannot return in global Scope");
+            Debug.Assert(IsKeyword(Keyword.RETURN));
 
             ReadNext();
 
@@ -1093,30 +1148,24 @@ namespace Ryu
 
         private ASTNode ParseDefer()
         {
-            if (!IsKeyword(Keyword.DEFER))
-                return null;
+            Debug.Assert(IsKeyword(Keyword.DEFER));
 
             ReadNext();
 
-            ASTNode deferredExpr;
+            var deferredFunctionCall = ParseTerm();
 
-            if (IsTokenType(TokenType.KEYWORD))
+            var structMemberFunctionCall = deferredFunctionCall as StructMemberCallAST;
+
+            if (!(deferredFunctionCall is FunctionCallAST) && 
+                structMemberFunctionCall == null || 
+                !(structMemberFunctionCall.variableNames.Last() is FunctionCallAST))
             {
-                deferredExpr = ParseStatement();
-            }
-            else if (IsTokenType(TokenType.IDENTIFIER))
-            {
-                deferredExpr = ParseIdentifier();
-            }
-            else
-            {
-                throw new Exception(
-                    string.Format("Invalid expression '{0}' after a defer statement", _currentTokenInfo));
+                throw new Exception("Deferred expression must be a function call");
             }
 
             var deferAST = new DeferAST
             {
-                DeferredExpression = deferredExpr
+                DeferredExpression = deferredFunctionCall
             };
 
             return deferAST;
@@ -1124,8 +1173,7 @@ namespace Ryu
 
         private ASTNode ParseDelete()
         {
-            if (!IsKeyword(Keyword.DELETE))
-                return null;
+            Debug.Assert(IsKeyword(Keyword.DELETE));
 
             ReadNext();
 
@@ -1303,7 +1351,7 @@ namespace Ryu
             else if (IsSymbol(Symbol.L_PARAN))
             {
                 ReadNext();
-
+                
                 var expr = ParseExpr();
 
                 ExpectSymbol(Symbol.R_PARAN);
@@ -1362,11 +1410,72 @@ namespace Ryu
                     return unaryOp;
                 }
             }
+            /* ptr deref */
+            else if (IsSymbol(Symbol.MUL))
+            {
+                var ptrDeref = new PtrDerefAST();
+
+                ReadNext();
+
+                ptrDeref.Expression = ParseExpr();
+
+                return ptrDeref;
+            }
+            /* address of */
+            else if (IsSymbol(Symbol.AND))
+            {
+                var addressOf = new AddressOfAST();
+
+                ReadNext();
+
+                ExpectType(TokenType.IDENTIFIER);
+
+                addressOf.Variable = new VariableNameAST { Name = _currentIdentifier };
+
+                ReadNext();
+
+                return addressOf;
+            }
+            else if (IsSymbol(Symbol.NUMBERSIGN))
+            {
+                ReadNext();
+
+                var directive = (CompilerDirective)
+               Enum.Parse(typeof(CompilerDirective), _currentIdentifier, true);
+
+                /* #cast(expr, type) */
+                if (directive == CompilerDirective.CAST)
+                {
+                    ReadNext();
+
+                    ExpectSymbol(Symbol.L_PARAN);
+
+                    ReadNext();
+
+                    var expr = ParseExpr();
+
+                    ExpectSymbol(Symbol.COMMA);
+
+                    ReadNext();
+
+                    ExpectVariableType();
+
+                    var type = ParseType();
+
+                    ReadNext();
+
+                    ExpectSymbol(Symbol.R_PARAN);
+
+                    ReadNext();
+
+                    return new CastAST { Expression = expr, Type = type };
+                }
+            }
 
             throw new Exception(string.Format("Invalid Expression '{0}'", _currentTokenInfo));
         }
 
-        private ASTNode ParseNumber()
+        private FloatAST ParseFloat()
         {
             string explicitType = "";
 
@@ -1400,6 +1509,23 @@ namespace Ryu
                     ExplicitType = explicitType
                 };
             }
+
+            return null;
+        }
+
+        private ASTNode ParseNumber()
+        {
+            var floatNumber = ParseFloat();
+
+            if (floatNumber != null)
+                return floatNumber;
+
+            return ParseInteger();
+        }
+
+        private ASTNode ParseInteger()
+        {
+            string explicitType = "";
 
             var intValue = int.Parse(_currentTokenInfo.token);
 
@@ -1456,7 +1582,7 @@ namespace Ryu
 
         private ASTNode ParseFunctionCall(ArrayAccessAST arrayCall = null)
         {
-            ExpectSymbol(Symbol.L_PARAN);
+            Debug.Assert(IsSymbol(Symbol.L_PARAN));
 
             ASTNode functionName = arrayCall;
 
@@ -1486,7 +1612,7 @@ namespace Ryu
 
         private ASTNode ParseArrayCall(ASTNode headExpr = null)
         {
-            ExpectSymbol(Symbol.L_BRACKET);
+            Debug.Assert(IsSymbol(Symbol.L_BRACKET));
 
             ASTNode arrayVariable = headExpr;
 
@@ -1553,13 +1679,7 @@ namespace Ryu
 
         private bool IsOperator()
         {
-            if (!IsTokenType(TokenType.SYMBOL))
-                return false;
-
-            if (IsArithmeticOperator() || IsLogicalOperator())
-                return true;
-
-            return false;
+            return IsArithmeticOperator() || IsLogicalOperator();
         }
 
         private bool IsArithmeticOperator()
@@ -1573,20 +1693,11 @@ namespace Ryu
 
         private bool IsAdditiveOperator()
         {
-            if (_currentTokenInfo.token == "&&")
-            {
-                return true;
-            }
-
-            if (_currentTokenInfo.token == "||")
-            {
-                return true;
-            }
-
-            if (IsSymbol(Symbol.ADD) || IsSymbol(Symbol.SUB))
-                return true;
-
-            return false;
+            return 
+                _currentTokenInfo.token == "&&" ||
+                _currentTokenInfo.token == "||" ||
+                IsSymbol(Symbol.ADD) ||
+                IsSymbol(Symbol.SUB);
         }
 
         private bool IsLogicalOperator()
@@ -1668,26 +1779,17 @@ namespace Ryu
 
         private bool IsKeyword(Keyword keyword)
         {
-            if (Enum.GetName(typeof(Keyword), keyword).ToLower() == _currentTokenInfo.token)
-                return true;
-
-            return false;
+            return Enum.GetName(typeof(Keyword), keyword).ToLower() == _currentTokenInfo.token;
         }
 
         private bool IsTokenType(TokenType tokenType)
         {
-            if (_currentTokenInfo.type.Equals(tokenType))
-                return true;
-
-            return false;
+            return _currentTokenInfo.type.Equals(tokenType);
         }
 
         private bool IsSymbol(Symbol symbol)
         {
-            if (_currentTokenInfo.token[0] == (int)symbol)
-                return true;
-
-            return false;
+            return _currentTokenInfo.token[0] == (int)symbol;
         }
 
         private bool IsType(TokenInfo? tokenInfo = null)
@@ -1698,13 +1800,11 @@ namespace Ryu
             var type = tokenInfo.Value.type;
             var token = tokenInfo.Value.token;
 
-            if (Vocabulary.Types.Any(x => x == token)
-                || type == TokenType.IDENTIFIER 
-                || token[0] == (int)Symbol.L_BRACKET // array: [] int
-                || token[0] == (int)Symbol.L_PARAN) // function: () -> x
-                return true;
-
-            return false;
+            return (Vocabulary.Types.Any(x => x == token) || 
+                type == TokenType.IDENTIFIER || 
+                token[0] == (int)Symbol.L_BRACKET || // array: [] int 
+                token[0] == (int)Symbol.L_PARAN || // function: () -> x
+                token[0] == (int)Symbol.CARET); // ptr : ^x
         }
     }
 }

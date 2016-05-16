@@ -15,7 +15,6 @@ namespace Ryu
         Dictionary<string, RootScopeAST> _programAST;
         ExprTypeVisitor _exprTypeVisitor;
         TypeAST _returnType;
-        string _nullType = Enum.GetName(typeof(Keyword), Keyword.NULL).ToLower();
 
 
         public TypeChecker(SymbolTableManager symbolTableManager)
@@ -64,6 +63,12 @@ namespace Ryu
             _currentScopeId = parentScopeId;
         }
 
+        public override void Visit(VariableDecAST variableDec)
+        {
+            if (variableDec.Type.ToString() == Enum.GetName(typeof(Keyword), Keyword.VOID).ToLower())
+                throw new Exception("Cannot declare variable of type void");
+        }
+
         public override void Visit(VariableDecAssignAST variableDecAssign)
         {
             if (variableDecAssign.Type == null)
@@ -72,14 +77,11 @@ namespace Ryu
             var identInfo = _symTableManager.LookupIdentifierInfo(_currentFileName, variableDecAssign.Name,
                 _currentScopeId, _currentNodePosition);
 
-            var exprType = _exprTypeVisitor.GetExprType(_currentFileName, identInfo, variableDecAssign.ExpressionValue);
+            var exprType = _exprTypeVisitor.GetAstNodeType(_currentFileName, identInfo.scopeId, identInfo.position, variableDecAssign.ExpressionValue);
 
-            if (variableDecAssign.Type.ToString() != exprType.ToString() && 
-                exprType.ToString() != _nullType)
-            {
+            if (!IsSameTypeOrNullPtr(variableDecAssign.Type, exprType))
                 throw new Exception(string.Format("Type mismatch : variable '{0}' have type '{1}' but assigned '{2}' type", 
                     variableDecAssign.Name, variableDecAssign.Type, exprType));
-            }
         }
 
         public override void Visit(FunctionProtoAST functionProto)
@@ -96,23 +98,40 @@ namespace Ryu
 
         public override void Visit(FunctionCallAST functionCall)
         {
-            _exprTypeVisitor.GetASTType(_currentFileName,
-                new IdentifierInfo { scopeId = _currentScopeId, position = _currentNodePosition },
+            _exprTypeVisitor.GetAstNodeType(_currentFileName,
+                _currentScopeId, _currentNodePosition,
                 functionCall);
+        }
+
+        public override void Visit(StructAST structAST)
+        {
+            foreach (var variable in structAST.Variables)
+            {
+                var decAssign = variable as VariableDecAssignAST;
+
+                if (decAssign == null)
+                    continue;
+
+                var exprType = _exprTypeVisitor.GetAstNodeType(_currentFileName, _currentScopeId, 
+                    _currentNodePosition, decAssign.ExpressionValue);
+
+                if (!IsSameTypeOrNullPtr(decAssign.Type, exprType))
+                    throw new Exception(string.Format("Type mismatch : struct variable '{0}' have type '{1}' but assigned '{2}' type",
+                                                        decAssign.Name, decAssign.Type,  exprType));
+            }
         }
 
         public override void Visit(StructMemberAssignAST structMemberAssign)
         {
-            var structMemberType = _exprTypeVisitor.GetASTType(_currentFileName,
-                new IdentifierInfo { scopeId = _currentScopeId, position = _currentNodePosition },
+            var structMemberType = _exprTypeVisitor.GetAstNodeType(_currentFileName,
+                _currentScopeId, _currentNodePosition,
                 structMemberAssign.StructMember);
 
-            var assignmentExprType = _exprTypeVisitor.GetASTType(_currentFileName,
-                new IdentifierInfo { scopeId = _currentScopeId, position = _currentNodePosition },
+            var assignmentExprType = _exprTypeVisitor.GetAstNodeType(_currentFileName,
+                _currentScopeId, _currentNodePosition,
                 structMemberAssign.AssignExpr);
 
-            if (structMemberType.ToString() != assignmentExprType.ToString() && 
-                assignmentExprType.ToString() != _nullType)
+            if (!IsSameTypeOrNullPtr(structMemberType, assignmentExprType))
                 throw new Exception(string.Format("Type mismatch : struct member '{0}' have type '{1}' but assigned '{2}' type",
                     structMemberAssign.StructMember, structMemberType, assignmentExprType));
         }
@@ -122,9 +141,10 @@ namespace Ryu
             var identInfo = _symTableManager.LookupIdentifierInfo(_currentFileName, variableAssign.VariableName,
                 _currentScopeId, _currentNodePosition);
 
-            var exprType = _exprTypeVisitor.GetExprType(_currentFileName, identInfo, variableAssign.ExpressionValue);
+            var exprType = _exprTypeVisitor.GetAstNodeType(_currentFileName, _currentScopeId, 
+                _currentNodePosition, variableAssign.ExpressionValue);
 
-            if (identInfo.typeAST.ToString() != exprType.ToString() && exprType.ToString() != _nullType)
+            if (!IsSameTypeOrNullPtr(identInfo.typeAST, exprType))
             {
                 throw new Exception(string.Format("Type mismatch : variable '{0}' have type '{1}' but assigned '{2}' type",
                     variableAssign.VariableName, identInfo.typeAST.ToString(), exprType));
@@ -135,9 +155,8 @@ namespace Ryu
         {
             foreach (var expr in arrayAccess.AccessExprList)
             {
-                var accessExprType = _exprTypeVisitor.GetExprType(_currentFileName,
-                new IdentifierInfo { scopeId = _currentScopeId, position = _currentNodePosition },
-                expr);
+                var accessExprType = _exprTypeVisitor.GetAstNodeType(_currentFileName, _currentScopeId, 
+                    _currentNodePosition, expr);
 
                 if (!Vocabulary.Ints.Contains(accessExprType.ToString()))
                     throw new Exception(string.Format("Type mismatch : array {0} accessor must be an integer, but '{1}' type found", 
@@ -149,16 +168,13 @@ namespace Ryu
         {
             arrayAccessAssign.ArrayAcess.Accept(this);
 
-            var arrayContainedType = _exprTypeVisitor.GetASTType(_currentFileName, 
-                new IdentifierInfo { scopeId = _currentScopeId, position = _currentNodePosition },
+            var arrayContainedType = _exprTypeVisitor.GetAstNodeType(_currentFileName, _currentScopeId, _currentNodePosition,
                 arrayAccessAssign.ArrayAcess);
 
-            var arrayAssignmentType = _exprTypeVisitor.GetExprType(_currentFileName,
-                new IdentifierInfo { scopeId = _currentScopeId, position = _currentNodePosition },
+            var arrayAssignmentType = _exprTypeVisitor.GetAstNodeType(_currentFileName, _currentScopeId, _currentNodePosition,
                 arrayAccessAssign.AssignmentExpr);
 
-            if (arrayContainedType.ToString() != arrayAssignmentType.ToString() && 
-                arrayAssignmentType.ToString() != _nullType)
+           if (!IsSameTypeOrNullPtr(arrayContainedType, arrayAssignmentType))
                 throw new Exception(string.Format("Type mismatch : variable '{0}' have type '{1}' but assigned '{2}' type",
                     arrayAccessAssign.ArrayAcess.ArrayVariableName.ToString(), 
                     arrayContainedType.ToString(), arrayAssignmentType.ToString()));
@@ -166,8 +182,8 @@ namespace Ryu
 
         public override void Visit(IfAST ifStatement)
         {
-            var exprType = _exprTypeVisitor.GetExprType(_currentFileName, 
-                new IdentifierInfo { scopeId = _currentScopeId, position = _currentNodePosition }, 
+            var exprType = _exprTypeVisitor.GetAstNodeType(_currentFileName,
+                _currentScopeId, _currentNodePosition,
                 ifStatement.ConditionExpr);
 
             if (exprType.ToString() != Enum.GetName(typeof(Keyword), Keyword.BOOL).ToLower())
@@ -179,12 +195,12 @@ namespace Ryu
 
         public override void Visit(ForAST forStatement)
         {
-            var fromExprType = _exprTypeVisitor.GetExprType(_currentFileName,
-                new IdentifierInfo { scopeId = _currentScopeId, position = _currentNodePosition },
+            var fromExprType = _exprTypeVisitor.GetAstNodeType(_currentFileName,
+                _currentScopeId, _currentNodePosition,
                 forStatement.FromExpr);
 
-            var toExprType = _exprTypeVisitor.GetExprType(_currentFileName,
-                new IdentifierInfo { scopeId = _currentScopeId, position = _currentNodePosition },
+            var toExprType = _exprTypeVisitor.GetAstNodeType(_currentFileName,
+                _currentScopeId, _currentNodePosition,
                 forStatement.ToExpr);
 
             if (!Vocabulary.Ints.Contains(fromExprType.ToString()) || 
@@ -197,8 +213,8 @@ namespace Ryu
 
         public override void Visit(ForeachAST foreachStatement)
         {
-            var arrayExprType = _exprTypeVisitor.GetExprType(_currentFileName,
-                new IdentifierInfo { scopeId = _currentScopeId, position = _currentNodePosition },
+            var arrayExprType = _exprTypeVisitor.GetAstNodeType(_currentFileName,
+                _currentScopeId, _currentNodePosition,
                 foreachStatement.ArrayExpr);
 
             if (!(arrayExprType is ArrayTypeAST))
@@ -210,8 +226,8 @@ namespace Ryu
 
         public override void Visit(WhileAST whileStatement)
         {
-            var exprType = _exprTypeVisitor.GetExprType(_currentFileName,
-                new IdentifierInfo { scopeId = _currentScopeId, position = _currentNodePosition },
+            var exprType = _exprTypeVisitor.GetAstNodeType(_currentFileName,
+                _currentScopeId, _currentNodePosition,
                 whileStatement.ConditionExpr);
 
             if (exprType.ToString() != Enum.GetName(typeof(Keyword), Keyword.BOOL).ToLower())
@@ -223,8 +239,8 @@ namespace Ryu
 
         public override void Visit(DoWhileAST doWhileStatement)
         {
-            var exprType = _exprTypeVisitor.GetExprType(_currentFileName,
-                new IdentifierInfo { scopeId = _currentScopeId, position = _currentNodePosition },
+            var exprType = _exprTypeVisitor.GetAstNodeType(_currentFileName,
+                _currentScopeId, _currentNodePosition,
                 doWhileStatement.ConditionExpr);
 
             if (exprType.ToString() != Enum.GetName(typeof(Keyword), Keyword.BOOL).ToLower())
@@ -236,19 +252,36 @@ namespace Ryu
 
         public override void Visit(ReturnAST returnStatement)
         {
-            if (_returnType.ToString() == Enum.GetName(typeof(Keyword), Keyword.VOID).ToLower() && returnStatement.ReturnExpr != null)
+            if (_returnType.ToString() == Enum.GetName(typeof(Keyword), Keyword.VOID).ToLower() && 
+                returnStatement.ReturnExpr != null)
                 throw new Exception("Return statement must not be followed by expression because the function has no return type");
 
-            var returnExprType = _exprTypeVisitor.GetExprType(_currentFileName,
-                new IdentifierInfo { scopeId = _currentScopeId, position = _currentNodePosition },
+            var returnExprType = _exprTypeVisitor.GetAstNodeType(_currentFileName,
+                _currentScopeId, _currentNodePosition,
                 returnStatement.ReturnExpr);
 
-            var x = _returnType.GetType().IsAssignableFrom(returnExprType.GetType());
+            var subsetOfRetType = _returnType.GetType().IsAssignableFrom(returnExprType.GetType());
 
-            if (_returnType.ToString() != returnExprType.ToString() && !x && 
-                returnExprType.ToString() != _nullType)
+            if (!IsSameTypeOrNullPtr(_returnType, returnExprType) && !subsetOfRetType)
                 throw new Exception(string.Format("Return type must be of type '{0}', found type '{1}'",
                     _returnType, returnExprType.ToString()));
+        }
+
+        public override void Visit(EnumAST enumAST)
+        {
+            foreach (var enumValue in enumAST.Values)
+            {
+                var variableDecAssign = enumValue as VariableDecAssignAST;
+
+                if (variableDecAssign == null)
+                    continue;
+
+                var enumAssignExprType = _exprTypeVisitor.GetAstNodeType(_currentFileName, _currentScopeId, 
+                    _currentNodePosition, variableDecAssign.ExpressionValue, true);
+
+                if (!Vocabulary.Ints.Contains(enumAssignExprType.ToString()))
+                    throw new Exception("Invalid enum assignment type");
+            }
         }
 
         public override void Visit(DeleteAST deleteStatement)
@@ -261,5 +294,15 @@ namespace Ryu
         }
 
         public override void Visit(DeferAST deferStatement) { }
+
+        private bool IsSameTypeOrNullPtr(TypeAST typeToCheck, TypeAST typeAssign)
+        {
+            var nullType = Enum.GetName(typeof(Keyword), Keyword.NULL).ToLower();
+
+            var isSameType = typeToCheck.ToString() == typeAssign.ToString();
+            var isNullPtr = (typeToCheck.ToString().StartsWith("^") && typeAssign.ToString() == nullType);
+
+            return isSameType || isNullPtr;
+        }
     }
 }

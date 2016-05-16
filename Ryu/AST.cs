@@ -34,6 +34,27 @@ namespace Ryu
         }
     }
 
+    public class DeclareAST : ASTNode
+    {
+        public VariableDecAST VariableDec;
+
+        public override void Accept(AbstractVisitor v)
+        {
+            v.Visit(this);    
+        }
+    }
+
+    public class CastAST : ASTNode
+    {
+        public BaseExprAST Expression;
+        public TypeAST Type;
+
+        public override void Accept(AbstractVisitor v)
+        {
+            v.Visit(this);
+        }
+    }
+
     public class ConstantVariable : ASTNode
     {
         public string VariableName;
@@ -310,12 +331,13 @@ namespace Ryu
         }
     }
 
-    /* func := (variable : type) -> returnType {} */
+    /* func := (variable : type, ...) -> returnType {} */
     public class FunctionProtoAST : ASTNode
     {
         public string Name;
         public List<VariableDecAST> Args;
         public TypeAST ReturnType;
+        public bool IsVarArgsFn;
 
         public override string ToString()
         {
@@ -334,7 +356,8 @@ namespace Ryu
             var functionType = new FunctionTypeAST();
             functionType.ReturnType = ReturnType;
             functionType.ArgumentTypes = new List<TypeAST>();
-            functionType.kind = FunctionTypeKind.FUNCTION;
+            functionType.Kind = FunctionTypeKind.FUNCTION;
+            functionType.IsVarArgsFn = IsVarArgsFn;
 
             if (Args != null)
             {
@@ -388,7 +411,7 @@ namespace Ryu
     }
 
     /* structName :: struct {} */
-    public class StructAST : ASTNode
+    public class StructAST : TypeAST
     {
         public string Name;
         public List<ASTNode> Variables;
@@ -400,8 +423,7 @@ namespace Ryu
 
         public override string ToString()
         {
-            return string.Format("Struct : Name {0}, Variables : \n \t {1}",
-                Name, Variables == null ? "" : string.Join("\n\t", Variables));
+            return Name;
         }
     }
 
@@ -440,7 +462,7 @@ namespace Ryu
     }
 
     /* enumName :: Enum {} */
-    public class EnumAST : ASTNode
+    public class EnumAST : TypeAST
     {
         public string Name;
         public List<ASTNode> Values;
@@ -452,8 +474,7 @@ namespace Ryu
 
         public override string ToString()
         {
-            return string.Format("Struct : Name {0}, Variables : \n \t {1}",
-                Name, Values == null ? "" : string.Join("\n\t", Values));
+            return Name;
         }
     }
 
@@ -658,7 +679,7 @@ namespace Ryu
             return string.Format("Delete : {0}", VariableName);
         }
     }
-
+    
     public class TypeAST : ASTNode
     {
         public string TypeName;
@@ -670,7 +691,42 @@ namespace Ryu
 
         public override string ToString()
         {
-            return /*IsPointer ? string.Concat("^", TypeName) :*/ TypeName;
+            return TypeName;
+        }
+    }
+
+    public class PtrTypeAST : TypeAST
+    {
+        public TypeAST Type;
+
+        public override void Accept(AbstractVisitor v)
+        {
+            v.Visit(this);
+        }
+
+        public override string ToString()
+        {
+            return string.Concat("^", Type.ToString());
+        }
+    }
+
+    public class PtrDerefAST : ASTNode
+    {
+        public BaseExprAST Expression;
+
+        public override void Accept(AbstractVisitor v)
+        {
+            v.Visit(this);
+        }
+    }
+
+    public class AddressOfAST : ASTNode
+    {
+        public VariableNameAST Variable;
+
+        public override void Accept(AbstractVisitor v)
+        {
+            v.Visit(this);
         }
     }
 
@@ -727,7 +783,8 @@ namespace Ryu
     {
         public List<TypeAST> ArgumentTypes;
         public TypeAST ReturnType;
-        public FunctionTypeKind kind;
+        public FunctionTypeKind Kind;
+        public bool IsVarArgsFn;
 
         public override string ToString()
         {

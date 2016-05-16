@@ -19,6 +19,7 @@ namespace Ryu
         List<IdentExpr> _identifiersToBeInferred;
         ExprTypeVisitor _typeVisitor;
 
+
         public TypeInferer(SymbolTableManager symTableManager)
         {
             _symTableManager = symTableManager;
@@ -31,7 +32,7 @@ namespace Ryu
                 if (identToBeInfered == null)
                     throw new Exception("Undeclared identifier " + identInfo);
 
-                return _typeVisitor.GetExprType(identToBeInfered.file, identToBeInfered.identInfo, identToBeInfered.expr);
+                return _typeVisitor.GetAstNodeType(identToBeInfered.file, identInfo.scopeId, identInfo.position, identToBeInfered.expr, identInfo.isConstant);
             };
 
             _typeVisitor = new ExprTypeVisitor(symTableManager, GetVariableTypeFunc);
@@ -44,12 +45,19 @@ namespace Ryu
                 if (identExpr.identInfo.typeAST != null)
                     continue;
 
-                var exprType = _typeVisitor.GetExprType(identExpr.file, identExpr.identInfo, identExpr.expr);
+                var identInfo = identExpr.identInfo;
+
+                var exprType = _typeVisitor.GetAstNodeType(identExpr.file, identInfo.scopeId, identInfo.position, 
+                    identExpr.expr, identInfo.isConstant);
 
                 if (exprType.ToString() == Enum.GetName(typeof(Keyword), Keyword.NULL).ToLower())
                     throw new Exception("Cannot Infer 'null' expression type");
 
+                if (exprType.ToString() == Enum.GetName(typeof(Keyword), Keyword.VOID).ToLower())
+                    throw new Exception(string.Format("variable '{0}' cannot be of type void", identExpr.identInfo.name));
+
                 identExpr.identInfo.typeAST = exprType;
+                identExpr.identInfo.isFunctionType = identExpr.identInfo.typeAST is FunctionTypeAST;
             }
         }
     }

@@ -46,7 +46,8 @@ namespace Ryu
         SYMBOL,
         IDENTIFIER, // variable name / function name etc..
         INT_CONST,
-        STRING_CONST
+        STRING_CONST,
+        CHAR_CONST
     }
 
     public enum Keyword
@@ -79,6 +80,7 @@ namespace Ryu
         ENUM,
         NEW,
         DELETE,
+        DECLARE,
     }
 
     public enum Symbol
@@ -108,6 +110,7 @@ namespace Ryu
         QUOTATION = 0x22,
         APOSTROPHE = 0x27,
         NUMBERSIGN = 0x23,
+        CARET = 0x5e,
     }
 
     public struct TokenInfo
@@ -210,6 +213,10 @@ namespace Ryu
                     }
 
                     tokenInfo.type = TokenType.STRING_CONST;
+                }
+                else if (_currentChar == (int) Symbol.APOSTROPHE)
+                {
+
                 }
                 else
                 {
