@@ -1,0 +1,12 @@
+declare printf: (^char, ...) -> void;
+
+print :: (arg_string: [] char, ...) {
+
+	printf(#cast(arg_string, ^char));
+}
+
+println :: (arg_string: [] char, ...) {
+
+	print(arg_string);
+	print("\n");
+}
