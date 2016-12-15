@@ -226,7 +226,14 @@ namespace Ryu
 
         public override void Visit(StringAST stringConstant)
         {
-            _stateInfo.currentType = new TypeAST { TypeName = Enum.GetName(typeof(Keyword), Keyword.STR).ToLower() };
+            _stateInfo.currentType = new StaticArrayTypeAST
+            {
+                Size = (uint)stringConstant.Value.Length,
+                TypeOfContainedValues = new TypeAST
+                {
+                    TypeName = Enum.GetName(typeof(Keyword), Keyword.CHAR).ToLower()
+                }
+            };
         }
 
         public override void Visit(HexNumberAST hexNumber)
@@ -243,11 +250,17 @@ namespace Ryu
         {
             var castType = castAST.Type;
 
-            if (Vocabulary.Types.All(x => x != castAST.Type.ToString()))
+            if (castAST.Type.ToString().StartsWith("^"))
+            {
+                _stateInfo.currentType = castType;
+                return;
+            }
+
+            if (Vocabulary.Types.All(x => x != castAST.Type.ToString()) && !castAST.Type.ToString().StartsWith("^"))
             {
                 var customType = _symTableManager.LookupTypeInfo(_stateInfo.currentFile, castType.ToString());
 
-                if (customType == null || customType.kind != TypeKind.ENUM)
+                if (customType.kind == TypeKind.STRUCT)
                     throw new Exception(string.Format("Invalid cast: Type '{0}' is not a primitive type or enum type", castType));
 
                 castType = customType.type;
@@ -255,7 +268,14 @@ namespace Ryu
 
             castAST.Expression.Accept(this);
 
+
             var expressionType = _stateInfo.currentType;
+
+            if (expressionType.ToString().StartsWith("^"))
+            {
+                _stateInfo.currentType = castType;
+                return;
+            }
 
             if (Vocabulary.Types.All(x => x != expressionType.ToString()) && !(expressionType is EnumAST))
                 throw new Exception(string.Format("Invalid cast: Type '{0}' is not a primitive type or enum type", expressionType));
@@ -296,6 +316,10 @@ namespace Ryu
             var otherTypeString = otherType.ToString();
 
             if (currentTypeString == otherTypeString)
+                return otherType;
+
+            if (otherType.ToString() == "[] char" && currentType.ToString() == "^char" ||
+                currentType.ToString() == "[] char" && otherType.ToString() == "^char")
                 return otherType;
 
             if ((Vocabulary.Types.All(x => x != currentTypeString) ||
@@ -424,13 +448,22 @@ namespace Ryu
 
             if (functionCallAst.ExpressionList.Count != 0)
             {
-                argsType = new List<TypeAST>();
-
-                foreach (var expression in functionCallAst.ExpressionList)
+                if (functionCallAst.argTypes == null)
                 {
-                    expression.Accept(this);
+                    argsType = new List<TypeAST>();
 
-                    argsType.Add(_stateInfo.currentType);
+                    foreach (var expression in functionCallAst.ExpressionList)
+                    {
+                        expression.Accept(this);
+
+                        argsType.Add(_stateInfo.currentType);
+                    }
+
+                    functionCallAst.argTypes = argsType;
+                }
+                else
+                {
+                    argsType = functionCallAst.argTypes;
                 }
             }
 
@@ -459,7 +492,7 @@ namespace Ryu
 
                 for (var i = 0; i < functionType.ArgumentTypes.Count; i++)
                 {
-                    if (functionType.ArgumentTypes[i].ToString() != argsType[i].ToString())
+                    if (functionType.ArgumentTypes[i].ToString() != argsType[i].ToString() && !functionType.ArgumentTypes[i].GetType().IsAssignableFrom(argsType[i].GetType()))
                     {
                         throw new Exception(invalidArgsMessage);
                     }

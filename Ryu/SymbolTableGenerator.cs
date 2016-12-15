@@ -13,6 +13,8 @@ namespace Ryu
         SymbolTable _symTable;
         ScopeInfo _currentScope;
 
+        public List<string> GlobalTypes { get; private set; }
+        public List<string> GlobalIdentifiers { get; private set; }
         public List<IdentExpr> IdentifiersToBeInferred { get; private set; }
         
 
@@ -30,6 +32,8 @@ namespace Ryu
 
             _symTable.ScopeInfoDictionary = new Dictionary<int, ScopeInfo>();
 
+            GlobalIdentifiers = new List<string>();
+            GlobalTypes = new List<string>();
             IdentifiersToBeInferred = new List<IdentExpr>();
 
             rootAST.Accept(this);
@@ -89,6 +93,11 @@ namespace Ryu
             };
 
             AddIdentInfoToSymTable(identInfo);
+
+            if (_currentScope.id != 0)
+                return;
+
+            GlobalIdentifiers.Add(variableDec.Name);
         }
 
         public override void Visit(DeclareAST declareAST)
@@ -103,6 +112,11 @@ namespace Ryu
             };
 
             AddIdentInfoToSymTable(identInfo);
+
+            if (_currentScope.id != 0)
+                return;
+
+            GlobalIdentifiers.Add(declareAST.VariableDec.Name);
         }
 
         public override void Visit(VariableDecAssignAST variableDecAssign)
@@ -127,6 +141,11 @@ namespace Ryu
                 expr = variableDecAssign.ExpressionValue as BaseExprAST,
                 file = _symTable.FilePath
             });
+
+            if (_currentScope.id != 0)
+                return;
+
+            GlobalIdentifiers.Add(variableDecAssign.Name);
         }
 
         private void AddIdentInfoToSymTable(IdentifierInfo identInfo)
@@ -173,18 +192,27 @@ namespace Ryu
 
             _symTable.IdentInfoDictionary.Add(identLocation, identInfo);
 
+            if (_currentScope.id == 0)
+            {
+                GlobalIdentifiers.Add(functionProto.Name);
+            }
+
             if (functionProto.Args == null)
                 return;
 
-            foreach (var functionArgument in functionProto.Args)
+            for (var i = 0; i < functionProto.Args.Count; i++)
             {
+                var functionArgument = functionProto.Args[i];
+
                 identInfo = new IdentifierInfo
                 {
                     name = functionArgument.Name,
                     typeAST = functionArgument.Type,
-                    position = ++_currentNodePosition,
+                    position = _currentNodePosition,
                     scopeId = _scopeIdGen + 1,
-                    isFunctionType = functionArgument.Type is FunctionTypeAST
+                    isFunctionType = functionArgument.Type is FunctionTypeAST,
+                    isFnParam = true,
+                    paramIndex = i
                 };
 
                 AddIdentInfoToSymTable(identInfo);
@@ -216,6 +244,11 @@ namespace Ryu
             }
 
             AddType(typeInfo);
+
+            if (_currentScope.id != 0)
+                return;
+
+            GlobalTypes.Add(structAST.Name);
         }
 
         public override void Visit(EnumAST enumAST)
@@ -237,6 +270,11 @@ namespace Ryu
             }
 
             AddType(typeInfo);
+
+            if (_currentScope.id != 0)
+                return;
+
+            GlobalTypes.Add(enumAST.Name);
         }
 
         private void AddType(CustomTypeInfo typeInfo)
@@ -270,6 +308,11 @@ namespace Ryu
                 expr = constantVariable.ExpressionValue,
                 file = _symTable.FilePath
             });
+
+            if (_currentScope.id != 0)
+                return;
+
+            GlobalIdentifiers.Add(constantVariable.VariableName);
         }
     }
 }

@@ -5,7 +5,7 @@ namespace Ryu
 {
     public abstract class ASTNode
     {
-        public int lineNumber, columNumber;
+        public int lineNumber, columnNumber;
         public abstract void Accept(AbstractVisitor v);
     }
 
@@ -94,7 +94,7 @@ namespace Ryu
 
     public class HexNumberAST : ASTNode
     {
-        public string Value;
+        public int Value;
         public string ExplicitType;
 
         public override string ToString()
@@ -143,7 +143,7 @@ namespace Ryu
 
         public override string ToString()
         {
-            return string.Format("(str) : {0}", Value);
+            return string.Format("([] char) : {0}", Value);
         }
     }
 
@@ -397,6 +397,7 @@ namespace Ryu
         /* can be variable name or arrayAccessCall : arr[expr]() */
         public ASTNode Name;
         public List<BaseExprAST> ExpressionList;
+        public List<TypeAST> argTypes;
 
         public override string ToString()
         {

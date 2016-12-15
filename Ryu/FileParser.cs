@@ -97,6 +97,10 @@ namespace Ryu
                 {
                     _rootAST.elements.Add(ParseDeclare());
                 }
+                else if (IsKeyword(Keyword.CONST))
+                {
+                    _rootAST.elements.Add(ParseConstant());
+                }
                 else
                 {
                     throw new Exception(
@@ -205,7 +209,7 @@ namespace Ryu
         /**
          * All things that begins with an identifier, it can be :
          * Variable name : x
-         * Struct declaration : lol :: struct { };
+         * Struct declaration : lol :: struct { }
          * Function declaration : lol :: (float x) -> float { thing };
          * Enum declaration : lol :: enum {};
          * Variable declaration : lol := 5;
@@ -289,21 +293,9 @@ namespace Ryu
                     }
                     else
                     {
-                        /* ... well */
-                        if (PeekNext().token[0] == (int) Symbol.L_PARAN && 
-                            (Peek(1).token[0] == (int)Symbol.R_PARAN || 
-                            (Peek(1).type == TokenType.IDENTIFIER &&
-                             Peek(2).token[0] == (int) Symbol.COLON)) ||
-                             (Peek(1).token[0] == (int)(Symbol.POINT) &&
-                                Peek(2).token[0] == (int)(Symbol.POINT) &&
-                                Peek(3).token[0] == (int)(Symbol.POINT)))
-                        {
-                            ReadNext();
+                        ReadNext();
 
-                            return ParseFunctionProto();
-                        }
-
-                        return ParseConstant();
+                        return ParseFunctionProto();
                     }
                 }
                 else if (IsSymbol(Symbol.EQUAL))
@@ -361,6 +353,20 @@ namespace Ryu
 
         private ASTNode ParseConstant()
         {
+            Debug.Assert(IsKeyword(Keyword.CONST));
+
+            ReadNext();
+
+            ExpectType(TokenType.IDENTIFIER);
+
+            ReadNext();
+
+            ExpectSymbol(Symbol.COLON);
+
+            ReadNext();
+
+            ExpectSymbol(Symbol.EQUAL);
+
             var constAST = new ConstantVariable
             {
                 VariableName = _currentIdentifier,
@@ -681,10 +687,14 @@ namespace Ryu
 
                 var functionBodyAST = new FunctionBodyAST();
                 functionBodyAST.Prototype = functionProtoAST;
+
                 var lastScope = _scopeKind;
                 _scopeKind = ScopeKind.FUNCTION;
+
                 functionBodyAST.Scope = ParseScope();
+
                 _scopeKind = lastScope;
+
                 return functionBodyAST;
             }
 
@@ -952,6 +962,11 @@ namespace Ryu
                 return ParseDelete();
             }
 
+            if (IsKeyword(Keyword.CONST))
+            {
+                return ParseConstant();
+            }
+
             return null;
         }
 
@@ -1152,6 +1167,15 @@ namespace Ryu
 
             ReadNext();
 
+            var deferAST = new DeferAST();
+
+            if (IsKeyword(Keyword.DELETE))
+            {
+                deferAST.DeferredExpression = ParseDelete();
+
+                return deferAST;
+            }
+
             var deferredFunctionCall = ParseTerm();
 
             var structMemberFunctionCall = deferredFunctionCall as StructMemberCallAST;
@@ -1160,13 +1184,10 @@ namespace Ryu
                 structMemberFunctionCall == null || 
                 !(structMemberFunctionCall.variableNames.Last() is FunctionCallAST))
             {
-                throw new Exception("Deferred expression must be a function call");
+                throw new Exception("Deferred expression must be a delete keyword or a function call");
             }
 
-            var deferAST = new DeferAST
-            {
-                DeferredExpression = deferredFunctionCall
-            };
+            deferAST.DeferredExpression = deferredFunctionCall;
 
             return deferAST;
         }
@@ -1208,15 +1229,8 @@ namespace Ryu
 
             var term = ParseTerm();
 
-            if (IsOperator())
-            {
-                expr.expr = ParseOperator(term);
-            }
-            else
-            {
-                expr.expr = term;
-            }
-
+            expr.expr = IsOperator() ? ParseOperator(term) : term;
+            
             return expr;
         }
 
@@ -1554,7 +1568,7 @@ namespace Ryu
 
                 if (stringHex.All(isHex))
                 {
-                    var hexVal = string.Concat(intValue, 'x', stringHex);
+                    var hexVal = int.Parse(string.Concat(intValue, 'x', stringHex));
 
                     ReadNext();
 
@@ -1579,7 +1593,7 @@ namespace Ryu
                 ExplicitType = explicitType
             };
         }
-
+        
         private ASTNode ParseFunctionCall(ArrayAccessAST arrayCall = null)
         {
             Debug.Assert(IsSymbol(Symbol.L_PARAN));

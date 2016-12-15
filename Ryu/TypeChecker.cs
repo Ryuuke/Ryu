@@ -293,7 +293,10 @@ namespace Ryu
                 throw new Exception("Undefined variable " + deleteStatement.VariableName.Name);
         }
 
-        public override void Visit(DeferAST deferStatement) { }
+        public override void Visit(DeferAST deferStatement) 
+		{
+			
+		}
 
         private bool IsSameTypeOrNullPtr(TypeAST typeToCheck, TypeAST typeAssign)
         {

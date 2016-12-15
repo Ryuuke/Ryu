@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using LLVMSharp;
 
 namespace Ryu
 {
@@ -15,6 +16,9 @@ namespace Ryu
         public int scopeId;
         public bool isFunctionType;
         public bool isConstant;
+        public bool isFnParam;
+        public LLVMValueRef valueRef;
+        internal int paramIndex;
     }
 
     public struct IdentifierLocation
@@ -58,6 +62,7 @@ namespace Ryu
         public int scopeId;
         public int position;
         public Dictionary<string, TypeAST> memberNameType;
+        LLVMTypeRef typeRef;
     }
 
     public class SymbolTable
@@ -131,7 +136,7 @@ namespace Ryu
 
             for (var i = 0; i < functionType.ArgumentTypes.Count; i++)
             {
-                if (functionType.ArgumentTypes[i].ToString() != argsType[i].ToString())
+                if (functionType.ArgumentTypes[i].ToString() != argsType[i].ToString() && !functionType.ArgumentTypes[i].GetType().IsAssignableFrom(argsType[i].GetType()))
                     return true;
             }
 

@@ -108,13 +108,16 @@ namespace Ryu
             task.ContinueWith((result) =>
             {
                 lock (_parseTasks)
+                {
                     _parseTasks.Add(task);
 
-                if (_parseTasks.Count != _operatedFiles.Count)
-                    return;
+                    if (_parseTasks.Count != _operatedFiles.Count)
+                        return;
+                }
 
                 try
                 {
+                    // hmm ... at this point all tasks are finished, no worry about race condition
                     foreach (var completedTask in _parseTasks)
                     {
                         var astInfo = completedTask.Result;

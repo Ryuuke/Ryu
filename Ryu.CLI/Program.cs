@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Diagnostics;
+using System.Collections.Generic;
 
 namespace Ryu.CLI
 {
@@ -12,7 +13,7 @@ namespace Ryu.CLI
 
             var parser = new Parser();
 
-            var rootAST = parser.ParseProgramAsync("src/testSymbolTable.ryu").Result;
+            var rootAST = parser.ParseProgramAsync("src/hello.ryu").Result;
 
             var symTableManager = new SymbolTableManager(rootAST);
 
@@ -20,18 +21,15 @@ namespace Ryu.CLI
 
             var typeInferer = new TypeInferer(symTableManager);
             var typeChecker = new TypeChecker(symTableManager);
+            var codeGen = new CodeGenVisitor(symTableManager);
 
             typeInferer.InferTypes();
             typeChecker.TypeCheck();
+            codeGen.CodeGen();
 
             sw.Stop();
 
             Console.WriteLine(sw.ElapsedMilliseconds);
-
-            //foreach (var item in rootAST)
-            //{
-            //    Console.WriteLine(item.Value);
-            //}
 
             Console.ReadKey();
         }

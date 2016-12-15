@@ -32,7 +32,6 @@ namespace Ryu
                 Enum.GetName(typeof(Keyword), Keyword.S64).ToLower(),
                 Enum.GetName(typeof(Keyword), Keyword.F32).ToLower(),
                 Enum.GetName(typeof(Keyword), Keyword.F64).ToLower(),
-                Enum.GetName(typeof(Keyword), Keyword.STR).ToLower(),
                 Enum.GetName(typeof(Keyword), Keyword.CHAR).ToLower(),
                 Enum.GetName(typeof(Keyword), Keyword.BOOL).ToLower(),
                 Enum.GetName(typeof(Keyword), Keyword.VOID).ToLower()
@@ -60,7 +59,6 @@ namespace Ryu
         S64,
         F32,
         F64,
-        STR,
         CHAR,
         BOOL,
         VOID,
@@ -81,6 +79,7 @@ namespace Ryu
         NEW,
         DELETE,
         DECLARE,
+        CONST,
     }
 
     public enum Symbol
@@ -199,7 +198,7 @@ namespace Ryu
 
                     while (_currentChar != (int)Symbol.QUOTATION || escapeNext == true)
                     {
-                        if (_currentChar == '\\' && escapeNext == false)
+                        if (_currentChar == '\\' && NextChar() == '\\' && escapeNext == false)
                         {
                             escapeNext = true;
                             _currentChar = ReadNext();
@@ -207,11 +206,12 @@ namespace Ryu
                         }
 
                         tokenInfo.token += _currentChar;
+                        
                         lastChar = _currentChar;
                         escapeNext = false;
                         _currentChar = ReadNext();
                     }
-
+                    tokenInfo.token = System.Text.RegularExpressions.Regex.Unescape(tokenInfo.token);
                     tokenInfo.type = TokenType.STRING_CONST;
                 }
                 else if (_currentChar == (int) Symbol.APOSTROPHE)

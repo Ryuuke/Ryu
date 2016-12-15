@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 
 namespace Ryu
 {
@@ -21,11 +22,29 @@ namespace Ryu
         {
             _programSymbolTable = new Dictionary<string, SymbolTable>();
             IdentifiersToBeInferred = new List<IdentExpr>();
+            var globalIdentifiers = new HashSet<string>();
+            var globalTypes = new HashSet<string>();
 
             foreach (var entry in ProgramAST)
             {
                 _programSymbolTable.Add(entry.Key, _symTableGen.GenerateSymTable(entry.Value, entry.Key));
                 IdentifiersToBeInferred.AddRange(_symTableGen.IdentifiersToBeInferred);
+
+                foreach (var globalIdentifier in _symTableGen.GlobalIdentifiers)
+                {
+                    var isUnique = globalIdentifiers.Add(globalIdentifier);
+
+                    if (!isUnique)
+                        throw new Exception(string.Format("Identifier {0} in file {1} is already declared in an other file", globalIdentifier, entry.Key));
+                }
+
+                foreach (var globalType in _symTableGen.GlobalTypes)
+                {
+                    var isUnique = globalTypes.Add(globalType);
+
+                    if (!isUnique)
+                        throw new Exception(string.Format("Struct or Enum {0} in file {1} is already declared in an other file", globalType, entry.Key));
+                }
             }
         }
 
