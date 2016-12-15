@@ -12,7 +12,7 @@ square :: (number: s64) -> s64 {
       return number * number;
 }
 
-my_print :: (a_string: str, ..) {
+my_print :: (a_string: str, ...) {
       // Implementation
 }
     ```
