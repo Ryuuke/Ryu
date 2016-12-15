@@ -65,7 +65,7 @@ two := #cast(Days.TUESDAY, s32); // 2
   my_large_float := 5.5f64;
   my_str := "hello";
   my_char := 'a'
-  my_function : (n: s32) -> s32; // function pointer declaration
+  my_function_ptr : (n: s32) -> s32; // function pointer declaration
   is_true := true;
   int_ptr : ^int = null;
   ```
