@@ -26,7 +26,7 @@ pointer_address := &my_pointer; // Get pointer address
 - New, Delete, Defer keywords
  
  ```c++
- player = new Player
+ player := new Player
   defer delete player; // Will be deleted later at the end of the current scope
   ```
 - Static arrays
