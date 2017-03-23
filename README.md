@@ -8,13 +8,14 @@ Supported language features:
 - Functions, variable length function arguments
 
     ```c++
-square :: (number: s64) -> s64 {
-      return number * number;
-}
+	square :: (number: s64) -> s64 {
+	      return number * number;
+	}
 
-my_print :: (a_string: str, ...) {
-      // Implementation
-}
+	my_print :: (a_string: str, ...) {
+	      // Implementation
+	}
+
     ```
 - C-like pointers
 
