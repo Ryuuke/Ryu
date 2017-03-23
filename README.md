@@ -41,25 +41,27 @@ pointer_address := &my_pointer; // Get pointer address
  dynamic_array := [..] s32;
   ```
 - Enums & type casting
-    ```c++
-const one := 1;
+    
+ ```c++
+    
+	const one := 1;
+	
+	Days :: enum {
+		MONDAY = one, // 1
+		TUESDAY, // 2 
+		WEDNESDAY = one + 2, // 3
+	}
 
-Days :: enum {
-	MONDAY = one, // 1
-	TUESDAY, // 2 
-	WEDNESDAY = one + 2, // 3
-}
-
-two := #cast(Days.TUESDAY, s32); // 2
-```
+	two := #cast(Days.TUESDAY, s32); // 2
+ ```
 - Structs, with in-place field initialization
 
-  ```c++
+ ```c++
   Player :: struct {
 	age : s32 = 0;
 	name : str = "Ryuuke";
   }
-  ```
+ ```
 
 - Type system with type inference
 
